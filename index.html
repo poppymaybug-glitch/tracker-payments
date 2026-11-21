@@ -14,7 +14,6 @@
       --accent: var(--tg-theme-button-color, #e53935);
       --accent-text: var(--tg-theme-button-text-color, #ffffff);
       --border: rgba(255, 255, 255, 0.08);
-      --ok: #2ea043;
     }
     * { box-sizing: border-box; }
     body {
@@ -26,19 +25,20 @@
     }
     .tabs {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 6px;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
       margin-bottom: 14px;
     }
     .tab {
-      padding: 9px 6px;
+      padding: 8px 4px;
       border-radius: 10px;
       border: 1px solid var(--border);
       background: var(--card);
       color: var(--text);
-      font-size: 13px;
+      font-size: 11px;
       font-weight: 600;
       cursor: pointer;
+      line-height: 1.2;
     }
     .tab.active {
       background: var(--accent);
@@ -54,6 +54,7 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 10px;
     }
     .summary-label { font-size: 12px; color: var(--hint); }
     .summary-val { font-size: 20px; font-weight: 700; margin-top: 2px; }
@@ -67,8 +68,9 @@
       background: var(--accent);
       color: var(--accent-text);
     }
+    .btn:disabled { opacity: 0.5; cursor: wait; }
     .btn-ghost {
-      background: rgba(255,255,255,0.07);
+      background: rgba(255,255,255,0.08);
       color: var(--text);
     }
     .btn-sm { padding: 6px 10px; font-size: 12px; }
@@ -139,14 +141,15 @@
 </head>
 <body>
   <div class="tabs">
-    <button class="tab active" data-tab="next" onclick="switchTab('next')">След. неделя</button>
-    <button class="tab" data-tab="current" onclick="switchTab('current')">Эта неделя</button>
+    <button class="tab" data-tab="current" onclick="switchTab('current')">Эта<br>неделя</button>
+    <button class="tab active" data-tab="next" onclick="switchTab('next')">След.<br>неделя</button>
+    <button class="tab" data-tab="afterNext" onclick="switchTab('afterNext')">Через<br>неделю</button>
     <button class="tab" data-tab="all" onclick="switchTab('all')">Все</button>
   </div>
 
   <div class="summary">
     <div>
-      <div class="summary-label" id="summaryLabel">Осталось к оплате (след. неделя)</div>
+      <div class="summary-label" id="summaryLabel">Осталось к оплате</div>
       <div class="summary-val" id="summaryAmount">0 ₽</div>
     </div>
     <button class="btn" onclick="openModal()">+ Добавить</button>
@@ -194,6 +197,7 @@
 
     let currentTab = 'next';
     let subscriptions = [];
+    let isBusy = false;
 
     function switchTab(tab) {
       currentTab = tab;
@@ -212,7 +216,7 @@
 
     function getWeekRange(offsetWeeks) {
       const now = new Date();
-      const dow = now.getDay(); // 0 = Sun, 1 = Mon
+      const dow = now.getDay();
       const daysUntilMon = dow === 0 ? 1 : (8 - dow);
       const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilMon + offsetWeeks * 7);
       const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
@@ -248,18 +252,22 @@
       const amtEl = document.getElementById('summaryAmount');
 
       let rows = [];
-      if (currentTab === 'next') {
-        const r = getWeekRange(0);
-        labelEl.textContent = `Осталось к оплате (${fmtDate(r.start)}–${fmtDate(r.end)})`;
-        rows = getItemsForRange(r.start, r.end);
-      } else if (currentTab === 'current') {
+      if (currentTab === 'current') {
         const r = getWeekRange(-1);
-        labelEl.textContent = `Осталось на текущей неделе (${fmtDate(r.start)}–${fmtDate(r.end)})`;
+        labelEl.textContent = `Эта неделя (${fmtDate(r.start)}–${fmtDate(r.end)})`;
+        rows = getItemsForRange(r.start, r.end);
+      } else if (currentTab === 'next') {
+        const r = getWeekRange(0);
+        labelEl.textContent = `След. неделя (${fmtDate(r.start)}–${fmtDate(r.end)})`;
+        rows = getItemsForRange(r.start, r.end);
+      } else if (currentTab === 'afterNext') {
+        const r = getWeekRange(1);
+        labelEl.textContent = `Через неделю (${fmtDate(r.start)}–${fmtDate(r.end)})`;
         rows = getItemsForRange(r.start, r.end);
       } else {
         const now = new Date();
         const curPeriod = formatPeriod(now);
-        labelEl.textContent = 'Активные подписки (в месяц)';
+        labelEl.textContent = 'Все активные (в месяц)';
         rows = subscriptions.filter(s => s.active).map(s => ({
           ...s,
           date: null,
@@ -287,37 +295,36 @@
                 ${escapeHtml(item.name)}
                 ${item.isPaid ? '<span class="badge-paid">Оплачено</span>' : ''}
               </div>
-              <div class="meta">${whenStr}${item.amount} ₽ · ${dayLabel(item.day)} · ${typeStr}</div>
+              <div class="meta">${whenStr}${item.amount} ₽ · ${item.day}-е число · ${typeStr}</div>
             </div>
             <div class="actions">
-              <button class="btn btn-sm btn-ghost" onclick="togglePaid('${item.id}', '${item.period}')">
+              <button class="btn btn-sm btn-ghost" ${isBusy ? 'disabled' : ''} onclick="togglePaid('${item.id}', '${item.period}')">
                 ${item.isPaid ? 'Снять' : 'Оплачено'}
               </button>
-              <button class="btn btn-sm btn-ghost" onclick="openModal('${item.id}')">✎</button>
+              <button class="btn btn-sm btn-ghost" ${isBusy ? 'disabled' : ''} onclick="openModal('${item.id}')">✎</button>
             </div>
           </div>
         `;
       }).join('');
     }
 
-    function dayLabel(d) {
-      return `${d}-е число`;
-    }
-
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
 
-    async function apiCall(action, body = null) {
-      const url = `${API_URL}?action=${encodeURIComponent(action)}`;
-      const opts = body
-        ? { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'text/plain;charset=utf-8' } }
-        : { method: 'GET' };
-      const resp = await fetch(url, opts);
-      const json = await resp.json();
-      if (!json.ok) throw new Error(json.error || 'API error');
-      subscriptions = json.data || [];
+    async function apiCall(action, params = {}) {
+      isBusy = true;
       render();
+      try {
+        const query = new URLSearchParams({ action, ...params, _t: Date.now() });
+        const resp = await fetch(`${API_URL}?${query.toString()}`, { method: 'GET' });
+        const json = await resp.json();
+        if (!json.ok) throw new Error(json.error || 'API error');
+        subscriptions = json.data || [];
+      } finally {
+        isBusy = false;
+        render();
+      }
     }
 
     async function loadData() {
