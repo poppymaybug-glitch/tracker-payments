@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Трекер подписок</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: var(--tg-theme-bg-color, #141416);
+      --card: var(--tg-theme-secondary-bg-color, #1e1f24);
+      --text: var(--tg-theme-text-color, #f2f2f5);
+      --hint: var(--tg-theme-hint-color, #8e9099);
+      --accent: var(--tg-theme-button-color, #e53935);
+      --accent-text: var(--tg-theme-button-text-color, #ffffff);
+      --border: rgba(255, 255, 255, 0.08);
+      --ok: #2ea043;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .tab {
+      padding: 9px 6px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .tab.active {
+      background: var(--accent);
+      color: var(--accent-text);
+      border-color: transparent;
+    }
+    .summary {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .summary-label { font-size: 12px; color: var(--hint); }
+    .summary-val { font-size: 20px; font-weight: 700; margin-top: 2px; }
+    .btn {
+      border: none;
+      border-radius: 9px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--accent);
+      color: var(--accent-text);
+    }
+    .btn-ghost {
+      background: rgba(255,255,255,0.07);
+      color: var(--text);
+    }
+    .btn-sm { padding: 6px 10px; font-size: 12px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .card.paid {
+      opacity: 0.45;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .card.paid .title {
+      text-decoration: line-through;
+    }
+    .title { font-weight: 600; font-size: 15px; }
+    .meta { font-size: 12px; color: var(--hint); margin-top: 3px; }
+    .badge-paid {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 11px;
+      background: rgba(46, 160, 67, 0.2);
+      color: #6ee787;
+      text-decoration: none;
+    }
+    .actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 50;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      width: 100%;
+      max-width: 400px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+    }
+    .field { margin-bottom: 10px; }
+    .field label { display: block; font-size: 12px; color: var(--hint); margin-bottom: 4px; }
+    .field input, .field select {
+      width: 100%;
+      padding: 9px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+    }
+    .modal-footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; }
+    .status { text-align: center; color: var(--hint); padding: 24px 8px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="tabs">
+    <button class="tab active" data-tab="next" onclick="switchTab('next')">След. неделя</button>
+    <button class="tab" data-tab="current" onclick="switchTab('current')">Эта неделя</button>
+    <button class="tab" data-tab="all" onclick="switchTab('all')">Все</button>
+  </div>
+
+  <div class="summary">
+    <div>
+      <div class="summary-label" id="summaryLabel">Осталось к оплате (след. неделя)</div>
+      <div class="summary-val" id="summaryAmount">0 ₽</div>
+    </div>
+    <button class="btn" onclick="openModal()">+ Добавить</button>
+  </div>
+
+  <div id="list" class="status">Загрузка...</div>
+
+  <div class="modal-backdrop" id="modal">
+    <div class="modal">
+      <h3 id="modalTitle" style="margin:0 0 12px 0;font-size:17px;">Новая подписка</h3>
+      <input type="hidden" id="editId" />
+      <div class="field">
+        <label>Название</label>
+        <input type="text" id="inpName" placeholder="Например, Яндекс Плюс" />
+      </div>
+      <div class="field">
+        <label>Сумма (₽)</label>
+        <input type="number" id="inpAmount" min="0" step="1" placeholder="399" />
+      </div>
+      <div class="field">
+        <label>День месяца (1–31)</label>
+        <input type="number" id="inpDay" min="1" max="31" placeholder="20" />
+      </div>
+      <div class="field">
+        <label>Тип оплаты</label>
+        <select id="inpType">
+          <option value="manual">Пополнять вручную</option>
+          <option value="auto">Автопродление</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" style="background:#b91c1c;" id="btnDelete" onclick="deleteItem()">Удалить</button>
+        <div style="display:flex;gap:8px;margin-left:auto;">
+          <button class="btn btn-sm btn-ghost" onclick="closeModal()">Отмена</button>
+          <button class="btn btn-sm" onclick="saveItem()">Сохранить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'ВСТАВЬ_СЮДА_URL_ВЕБ_ПРИЛОЖЕНИЯ';
+    const tg = window.Telegram && window.Telegram.WebApp;
+    if (tg) { tg.ready(); tg.expand(); }
+
+    let currentTab = 'next';
+    let subscriptions = [];
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      render();
+    }
+
+    function formatPeriod(d) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    function getEffectiveDate(year, monthIndex, day) {
+      const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+      return new Date(year, monthIndex, Math.min(Number(day) || 1, lastDay));
+    }
+
+    function getWeekRange(offsetWeeks) {
+      const now = new Date();
+      const dow = now.getDay(); // 0 = Sun, 1 = Mon
+      const daysUntilMon = dow === 0 ? 1 : (8 - dow);
+      const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilMon + offsetWeeks * 7);
+      const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+      return { start: mon, end: sun };
+    }
+
+    function getItemsForRange(start, end) {
+      const months = [{ y: start.getFullYear(), m: start.getMonth() }];
+      if (start.getFullYear() !== end.getFullYear() || start.getMonth() !== end.getMonth()) {
+        months.push({ y: end.getFullYear(), m: end.getMonth() });
+      }
+      const res = [];
+      subscriptions.filter(s => s.active).forEach(sub => {
+        months.forEach(ym => {
+          const dt = getEffectiveDate(ym.y, ym.m, sub.day);
+          if (dt >= start && dt <= end) {
+            const period = formatPeriod(dt);
+            res.push({ ...sub, date: dt, period, isPaid: sub.paid_period === period });
+          }
+        });
+      });
+      res.sort((a, b) => a.date - b.date);
+      return res;
+    }
+
+    function fmtDate(d) {
+      return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    function render() {
+      const listEl = document.getElementById('list');
+      const labelEl = document.getElementById('summaryLabel');
+      const amtEl = document.getElementById('summaryAmount');
+
+      let rows = [];
+      if (currentTab === 'next') {
+        const r = getWeekRange(0);
+        labelEl.textContent = `Осталось к оплате (${fmtDate(r.start)}–${fmtDate(r.end)})`;
+        rows = getItemsForRange(r.start, r.end);
+      } else if (currentTab === 'current') {
+        const r = getWeekRange(-1);
+        labelEl.textContent = `Осталось на текущей неделе (${fmtDate(r.start)}–${fmtDate(r.end)})`;
+        rows = getItemsForRange(r.start, r.end);
+      } else {
+        const now = new Date();
+        const curPeriod = formatPeriod(now);
+        labelEl.textContent = 'Активные подписки (в месяц)';
+        rows = subscriptions.filter(s => s.active).map(s => ({
+          ...s,
+          date: null,
+          period: curPeriod,
+          isPaid: s.paid_period === curPeriod
+        }));
+      }
+
+      const unpaidSum = rows.filter(x => !x.isPaid).reduce((acc, x) => acc + Number(x.amount || 0), 0);
+      amtEl.textContent = `${unpaidSum} ₽`;
+
+      if (!rows.length) {
+        listEl.innerHTML = '<div class="status">В этом разделе пока пусто</div>';
+        return;
+      }
+
+      listEl.className = '';
+      listEl.innerHTML = rows.map(item => {
+        const whenStr = item.date ? `${fmtDate(item.date)} · ` : '';
+        const typeStr = item.pay_type === 'auto' ? 'авто' : 'вручную';
+        return `
+          <div class="card ${item.isPaid ? 'paid' : ''}">
+            <div>
+              <div class="title">
+                ${escapeHtml(item.name)}
+                ${item.isPaid ? '<span class="badge-paid">Оплачено</span>' : ''}
+              </div>
+              <div class="meta">${whenStr}${item.amount} ₽ · ${dayLabel(item.day)} · ${typeStr}</div>
+            </div>
+            <div class="actions">
+              <button class="btn btn-sm btn-ghost" onclick="togglePaid('${item.id}', '${item.period}')">
+                ${item.isPaid ? 'Снять' : 'Оплачено'}
+              </button>
+              <button class="btn btn-sm btn-ghost" onclick="openModal('${item.id}')">✎</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function dayLabel(d) {
+      return `${d}-е число`;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    async function apiCall(action, body = null) {
+      const url = `${API_URL}?action=${encodeURIComponent(action)}`;
+      const opts = body
+        ? { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'text/plain;charset=utf-8' } }
+        : { method: 'GET' };
+      const resp = await fetch(url, opts);
+      const json = await resp.json();
+      if (!json.ok) throw new Error(json.error || 'API error');
+      subscriptions = json.data || [];
+      render();
+    }
+
+    async function loadData() {
+      try {
+        await apiCall('list');
+      } catch (e) {
+        document.getElementById('list').innerHTML = `<div class="status">Ошибка загрузки: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    async function togglePaid(id, period) {
+      try {
+        await apiCall('togglePaid', { id, period });
+      } catch (e) {
+        alert('Ошибка: ' + e.message);
+      }
+    }
+
+    function openModal(id = null) {
+      const modal = document.getElementById('modal');
+      const delBtn = document.getElementById('btnDelete');
+      if (id) {
+        const item = subscriptions.find(x => String(x.id) === String(id));
+        if (!item) return;
+        document.getElementById('modalTitle').textContent = 'Редактировать подписку';
+        document.getElementById('editId').value = item.id;
+        document.getElementById('inpName').value = item.name;
+        document.getElementById('inpAmount').value = item.amount;
+        document.getElementById('inpDay').value = item.day;
+        document.getElementById('inpType').value = item.pay_type;
+        delBtn.style.display = 'inline-block';
+      } else {
+        document.getElementById('modalTitle').textContent = 'Новая подписка';
+        document.getElementById('editId').value = '';
+        document.getElementById('inpName').value = '';
+        document.getElementById('inpAmount').value = '';
+        document.getElementById('inpDay').value = '';
+        document.getElementById('inpType').value = 'manual';
+        delBtn.style.display = 'none';
+      }
+      modal.classList.add('open');
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.remove('open');
+    }
+
+    async function saveItem() {
+      const id = document.getElementById('editId').value;
+      const name = document.getElementById('inpName').value.trim();
+      const amount = Number(document.getElementById('inpAmount').value);
+      const day = Number(document.getElementById('inpDay').value);
+      const pay_type = document.getElementById('inpType').value;
+
+      if (!name || !day || day < 1 || day > 31) {
+        alert('Проверь название и день месяца (от 1 до 31)');
+        return;
+      }
+
+      closeModal();
+      try {
+        if (id) {
+          await apiCall('update', { id, name, amount, day, pay_type });
+        } else {
+          await apiCall('add', { name, amount, day, pay_type });
+        }
+      } catch (e) {
+        alert('Ошибка сохранения: ' + e.message);
+      }
+    }
+
+    async function deleteItem() {
+      const id = document.getElementById('editId').value;
+      if (!id) return;
+      closeModal();
+      try {
+        await apiCall('delete', { id });
+      } catch (e) {
+        alert('Ошибка удаления: ' + e.message);
+      }
+    }
+
+    loadData();
+  </script>
+</body>
+</html>
